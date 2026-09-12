@@ -1,4 +1,4 @@
-export type ProxyCreds = { user?: string; pass?: string };
+export type ProxyCreds = { user?: string | undefined; pass?: string | undefined };
 
 export function buildProxyUrl(target: string, creds?: ProxyCreds): string {
   const params = new URLSearchParams({ u: target });
