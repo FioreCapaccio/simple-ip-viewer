@@ -46,7 +46,10 @@ const NAV_SCRIPT = `
     var href = el.getAttribute("data-viewer-href");
     if (!href) return;
     e.preventDefault();
-    send(href, "navigate");
+    var isFile = el.hasAttribute("download") ||
+      /\\.(zip|rar|7z|tar|gz|tgz|pdf|csv|xlsx?|docx?|pptx?|txt|log|bin|img|iso|exe|msi|dmg|apk|jpg|jpeg|png|gif|bmp|svg|mp3|mp4|avi|mkv|mov|wav|json|xml|cfg|conf|bak|db)(\\?|$)/i
+        .test(href.split("#")[0]);
+    send(href, isFile ? "download" : "navigate");
   }, true);
   document.addEventListener("submit", function (e) {
     var form = e.target;
