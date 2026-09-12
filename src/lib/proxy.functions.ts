@@ -3,8 +3,8 @@ import { basicAuthHeader, buildProxyUrl, type ProxyCreds } from "./proxy-shared"
 
 type FetchInput = {
   url: string;
-  user?: string;
-  pass?: string;
+  user?: string | undefined;
+  pass?: string | undefined;
 };
 
 export type FetchPageResult = {
