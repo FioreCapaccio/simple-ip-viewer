@@ -41,7 +41,17 @@ export const Route = createFileRoute("/api/public/fetch")({
           const headers = new Headers();
           const ct = upstream.headers.get("content-type");
           if (ct) headers.set("content-type", ct);
+          const len = upstream.headers.get("content-length");
+          if (len) headers.set("content-length", len);
           headers.set("cache-control", "no-store");
+
+          if (url.searchParams.get("dl") === "1") {
+            const upstreamDisp = upstream.headers.get("content-disposition");
+            const fromUpstream = upstreamDisp?.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i)?.[1];
+            const fromPath = decodeURIComponent(parsed.pathname.split("/").filter(Boolean).pop() ?? "");
+            const name = (fromUpstream || fromPath || "download").replace(/[\\/"]/g, "_");
+            headers.set("content-disposition", `attachment; filename="${name}"`);
+          }
 
           return new Response(upstream.body, {
             status: upstream.status,
