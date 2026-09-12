@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchPage, type FetchPageResult } from "@/lib/proxy.functions";
-import { normalizeTarget } from "@/lib/proxy-shared";
+import { buildProxyUrl, normalizeTarget } from "@/lib/proxy-shared";
 
 const DEFAULT_HOST = "http://192.168.1.69";
 const DEFAULT_PORT = "80";
