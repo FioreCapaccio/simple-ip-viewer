@@ -23,7 +23,7 @@ export function normalizeTarget(input: string, port?: string): string {
   if (!/^https?:\/\//i.test(value)) value = `http://${value}`;
   try {
     const url = new URL(value);
-    if (port && port.trim() && !/:\d+$/.test(url.host)) {
+    if (port && port.trim() && url.protocol === "http:" && !/:\d+$/.test(url.host)) {
       url.port = port.trim();
     }
     return url.toString();
