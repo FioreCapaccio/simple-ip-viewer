@@ -94,16 +94,6 @@ function Viewer() {
     [cursor, history, request],
   );
 
-  useEffect(() => {
-    function onMessage(event: MessageEvent) {
-      const data = event.data as { __viewer?: boolean; kind?: string; url?: string } | null;
-      if (!data || !data.__viewer || data.kind !== "navigate" || !data.url) return;
-      void go(data.url);
-    }
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [go]);
-
   const download = useCallback(
     (rawTarget: string) => {
       const target = normalizeTarget(rawTarget, port);
@@ -118,6 +108,18 @@ function Viewer() {
     },
     [port],
   );
+
+  useEffect(() => {
+    function onMessage(event: MessageEvent) {
+      const data = event.data as { __viewer?: boolean; kind?: string; url?: string } | null;
+      if (!data || !data.__viewer || !data.url) return;
+      if (data.kind === "download") download(data.url);
+      else if (data.kind === "navigate") void go(data.url);
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [go, download]);
+
 
   const canBack = cursor > 0;
   const canForward = cursor >= 0 && cursor < history.length - 1;
