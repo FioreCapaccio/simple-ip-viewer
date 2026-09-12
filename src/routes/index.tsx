@@ -255,7 +255,26 @@ function Viewer() {
           </pre>
         )}
 
-        {result && !result.error && !showSource && (
+        {result && !result.error && !showSource && result.html === null && result.text === null && (
+          <div className="flex h-full items-center justify-center px-6 text-center">
+            <div className="max-w-md">
+              <h2 className="text-lg font-semibold">File pronto da scaricare</h2>
+              <p className="mt-2 text-sm text-muted-foreground break-all">
+                {result.finalUrl}
+                {result.contentType ? ` · ${result.contentType}` : ""}
+              </p>
+              <button
+                type="button"
+                onClick={() => download(result.finalUrl)}
+                className="mt-4 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+              >
+                Scarica il file
+              </button>
+            </div>
+          </div>
+        )}
+
+        {result && !result.error && !showSource && (result.html !== null || result.text !== null) && (
           <iframe
             title="Contenuto della macchina"
             className="h-full w-full border-0 bg-white"
@@ -263,7 +282,7 @@ function Viewer() {
             srcDoc={
               result.html ??
               `<pre style="font:13px/1.5 monospace;padding:16px;white-space:pre-wrap">${escapeHtml(
-                result.text ?? "(contenuto non testuale)",
+                result.text ?? "",
               )}</pre>`
             }
           />
