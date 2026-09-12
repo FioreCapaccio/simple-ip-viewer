@@ -22,3 +22,34 @@ cd <repository-name>
 npm i
 npm run dev
 ```
+
+## Desktop app (Electron)
+
+The web app needs a running Node/Nitro server (it proxies HTTP requests to the
+LAN machine and rewrites the returned HTML to strip frame-busting/CSP), so the
+desktop build wraps that server in an Electron shell instead of shipping a
+static site.
+
+```sh
+# macOS build (dmg + zip, arm64 + x64) — run on a Mac
+npm run dist:mac
+
+# Windows build (nsis installer + portable exe) — run on Windows
+npm run dist:win
+```
+
+Artifacts land in `release/`. `npm run electron:dev` builds once and launches
+the app locally without packaging, for quick testing.
+
+Pushes to `main` (and manual runs) also trigger
+[`.github/workflows/build-desktop.yml`](.github/workflows/build-desktop.yml),
+which builds both platforms natively on GitHub-hosted macOS and Windows
+runners (no Wine/cross-compilation) and uploads the installers as workflow
+artifacts. Pushing a tag like `v1.0.0` additionally publishes them to a draft
+GitHub Release.
+
+Note: the macOS build is signed with whatever identity is available locally
+(ad-hoc if none) and is **not notarized**, so Gatekeeper will warn on first
+launch on another Mac (right-click → Open bypasses it). The Windows build is
+unsigned, so SmartScreen may warn similarly. Add a Developer ID / code-signing
+certificate later if you want to remove those warnings for other users.

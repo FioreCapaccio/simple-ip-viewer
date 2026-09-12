@@ -6,10 +6,18 @@
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
+// The Electron desktop build (see electron/ and package.json's build:desktop
+// script) needs a standalone Node server it can spawn as a child process, so
+// it opts into Nitro's "node_server" preset instead of Lovable's default
+// Cloudflare target. Regular `vite build` (used by Lovable's own hosting) is
+// untouched.
+const isDesktopBuild = process.env.DESKTOP_BUILD === "1";
+
 export default defineConfig({
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  ...(isDesktopBuild ? { nitro: { preset: "node_server" } } : {}),
 });
