@@ -109,7 +109,33 @@ function Viewer() {
     [port],
   );
 
+  const savePage = useCallback(() => {
+    if (!result) return;
+    const body = result.text ?? result.html;
+    if (body === null) return;
+    let name = "pagina";
+    try {
+      const u = new URL(result.finalUrl);
+      const last = u.pathname.split("/").filter(Boolean).pop();
+      name = (last ? last.replace(/\.[^.]+$/, "") : u.hostname).replace(/[^\w.-]+/g, "_");
+    } catch {
+      /* nome di riserva */
+    }
+    const withBase = /<head[^>]*>/i.test(body)
+      ? body.replace(/<head([^>]*)>/i, `<head$1><base href="${result.finalUrl}">`)
+      : body;
+    const url = URL.createObjectURL(new Blob([withBase], { type: "text/html;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${name || "pagina"}.html`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }, [result]);
+
   useEffect(() => {
+
     function onMessage(event: MessageEvent) {
       const data = event.data as { __viewer?: boolean; kind?: string; url?: string } | null;
       if (!data || !data.__viewer || !data.url) return;
@@ -178,6 +204,18 @@ function Viewer() {
           >
             Scarica
           </button>
+
+          <button
+            type="button"
+            onClick={savePage}
+            disabled={!result || (result.text === null && result.html === null)}
+            title="Salva la pagina come file HTML da leggere offline"
+            className="rounded-md border border-input px-3 py-2 text-sm transition-colors hover:bg-accent disabled:opacity-50"
+          >
+            Salva pagina
+          </button>
+
+
 
 
           <button
