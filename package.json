@@ -103,6 +103,7 @@
     "appId": "dev.fiorecapaccio.simpleipviewer",
     "productName": "Visore di rete locale",
     "asar": true,
+    "publish": null,
     "directories": {
       "output": "release"
     },
