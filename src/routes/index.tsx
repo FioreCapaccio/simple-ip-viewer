@@ -104,6 +104,21 @@ function Viewer() {
     return () => window.removeEventListener("message", onMessage);
   }, [go]);
 
+  const download = useCallback(
+    (rawTarget: string) => {
+      const target = normalizeTarget(rawTarget, port);
+      if (!target) return;
+      const link = document.createElement("a");
+      link.href = `${buildProxyUrl(target, credsRef.current)}&dl=1`;
+      link.download = "";
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    },
+    [port],
+  );
+
   const canBack = cursor > 0;
   const canForward = cursor >= 0 && cursor < history.length - 1;
 
