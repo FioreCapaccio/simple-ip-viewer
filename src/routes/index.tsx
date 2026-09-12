@@ -171,6 +171,15 @@ function Viewer() {
 
           <button
             type="button"
+            onClick={() => download(history[cursor] ?? address)}
+            className="rounded-md border border-input px-3 py-2 text-sm transition-colors hover:bg-accent"
+          >
+            Scarica
+          </button>
+
+
+          <button
+            type="button"
             onClick={() => setShowLogin((v) => !v)}
             className="rounded-md border border-input px-3 py-2 text-sm transition-colors hover:bg-accent"
           >
