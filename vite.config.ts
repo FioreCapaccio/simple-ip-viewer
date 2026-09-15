@@ -11,7 +11,7 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 // it opts into Nitro's "node_server" preset instead of Lovable's default
 // Cloudflare target. Regular `vite build` (used by Lovable's own hosting) is
 // untouched.
-const isDesktopBuild = process.env.DESKTOP_BUILD === "1";
+const isDesktopBuild = process.env["DESKTOP_BUILD"] === "1";
 
 export default defineConfig({
   tanstackStart: {

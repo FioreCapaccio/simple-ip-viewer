@@ -21,6 +21,24 @@ export type FetchPageResult = {
 
 const TIMEOUT_MS = 15000;
 
+// Decoding arbitrary binary bytes as UTF-8 produces NUL/control characters
+// and U+FFFD replacement characters where the bytes weren't valid text. A
+// real text/HTML page won't contain more than a trace of these, so a high
+// ratio flags content that only *claims* to be textual (e.g. a firmware
+// image served with a generic "application/octet-stream" label).
+function looksBinary(sample: string): boolean {
+  if (!sample) return false;
+  const probe = sample.slice(0, 4000);
+  let suspicious = 0;
+  for (let i = 0; i < probe.length; i++) {
+    const code = probe.charCodeAt(i);
+    if (code === 0xfffd || (code < 32 && code !== 9 && code !== 10 && code !== 13)) {
+      suspicious++;
+    }
+  }
+  return suspicious / probe.length > 0.01;
+}
+
 function absolutize(raw: string, base: string): string | null {
   const value = raw.trim();
   if (!value) return null;
@@ -152,10 +170,31 @@ export const fetchPage = createServerFn({ method: "POST" })
 
       const contentType = response.headers.get("content-type") ?? "";
       const finalUrl = response.url || data.url;
-      const isTextual =
-        /text\/|application\/(json|xml|xhtml|javascript)/i.test(contentType) || contentType === "";
-      const body = isTextual ? await response.text() : "";
-      const isHtml = /html|xml/i.test(contentType) || /<html[\s>]/i.test(body);
+      // Many embedded devices (NVR/telecamere/centraline) send a wrong or
+      // generic Content-Type on their own HTML page — most commonly
+      // "application/octet-stream". A real browser sniffs the actual bytes
+      // and renders it anyway, so we only skip reading the body for types
+      // that are unambiguously binary (media, archives, office docs,
+      // multipart streams); everything else — octet-stream included — gets
+      // read and classified by its real content, with a byte-level check to
+      // catch genuinely binary data mislabeled the same generic way.
+      const isUnambiguousBinary =
+        /^(image|audio|video|font|multipart)\//i.test(contentType) ||
+        /^application\/(pdf|zip|gzip|x-7z-compressed|x-rar-compressed|x-tar|x-msdownload|vnd\.(ms-|openxmlformats))/i.test(
+          contentType,
+        );
+
+      let isTextual = !isUnambiguousBinary;
+      let body = "";
+      if (isTextual) {
+        body = await response.text();
+        if (looksBinary(body)) {
+          isTextual = false;
+          body = "";
+        }
+      }
+
+      const isHtml = isTextual && (/html|xml/i.test(contentType) || /<html[\s>]/i.test(body));
 
       return {
         ok: response.ok,

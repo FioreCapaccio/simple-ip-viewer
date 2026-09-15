@@ -22,6 +22,10 @@ dist-ssr
 
 # Electron build output
 release/
+/simple-ip-viewer-mac/
+/simple-ip-viewer-mac.zip
+/simple-ip-viewer-windows/
+/simple-ip-viewer-windows.zip
 
 # Editor directories and files
 .vscode/*
