@@ -3,6 +3,9 @@ import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchPage, type FetchPageResult } from "@/lib/proxy.functions";
 import { buildProxyUrl, normalizeTarget } from "@/lib/proxy-shared";
+// src/lib/electron-viewer.d.ts augments the global Window type with
+// `electronViewer` — picked up automatically via tsconfig's include glob, no
+// import needed.
 
 const DEFAULT_HOST = "http://192.168.1.69";
 const DEFAULT_PORT = "80";
@@ -32,6 +35,18 @@ export const Route = createFileRoute("/")({
 function Viewer() {
   const load = useServerFn(fetchPage);
 
+  // In the Electron desktop build, window.electronViewer (see
+  // electron/preload.cjs) drives a native WebContentsView that loads the
+  // device page directly — script, AJAX, WebSocket included — instead of the
+  // fetch-and-rewrite flow below, which the plain web build (Lovable/
+  // Cloudflare) still uses since it has no such native view available.
+  // Detected post-mount (not during the initial render) so the server-
+  // rendered markup and the client's first paint always match.
+  const [isElectron, setIsElectron] = useState(false);
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.electronViewer) setIsElectron(true);
+  }, []);
+
   const [address, setAddress] = useState(DEFAULT_HOST);
   const [port, setPort] = useState(DEFAULT_PORT);
   const [user, setUser] = useState("");
@@ -46,6 +61,8 @@ function Viewer() {
 
   const credsRef = useRef({ user: "", pass: "" });
   credsRef.current = { user, pass };
+
+  // --- Web-mode (fetch + rewritten HTML in a sandboxed iframe) ---
 
   const request = useCallback(
     async (target: string) => {
@@ -135,7 +152,6 @@ function Viewer() {
   }, [result]);
 
   useEffect(() => {
-
     function onMessage(event: MessageEvent) {
       const data = event.data as { __viewer?: boolean; kind?: string; url?: string } | null;
       if (!data || !data.__viewer || !data.url) return;
@@ -146,9 +162,120 @@ function Viewer() {
     return () => window.removeEventListener("message", onMessage);
   }, [go, download]);
 
-
   const canBack = cursor > 0;
   const canForward = cursor >= 0 && cursor < history.length - 1;
+
+  // --- Electron mode (native WebContentsView) ---
+
+  const [hasNavigated, setHasNavigated] = useState(false);
+  const [electronBusy, setElectronBusy] = useState(false);
+  const [electronUrl, setElectronUrl] = useState("");
+  const [electronCanBack, setElectronCanBack] = useState(false);
+  const [electronCanForward, setElectronCanForward] = useState(false);
+  const [electronError, setElectronError] = useState<string | null>(null);
+  const [electronSource, setElectronSource] = useState<string | null>(null);
+  const contentAreaRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const viewer = window.electronViewer;
+    if (!isElectron || !viewer) return;
+    const offState = viewer.onState((s) => {
+      setElectronUrl(s.url);
+      setElectronBusy(s.loading);
+      setElectronCanBack(s.canGoBack);
+      setElectronCanForward(s.canGoForward);
+      setElectronError(null);
+      setAddress((prev) => s.url || prev);
+    });
+    const offError = viewer.onError((e) => {
+      setElectronBusy(false);
+      setElectronError(
+        `Impossibile contattare la macchina (${e.errorDescription || e.errorCode}). Verifica che sia sulla stessa rete e che la porta sia corretta.`,
+      );
+    });
+    return () => {
+      offState();
+      offError();
+    };
+  }, [isElectron]);
+
+  const electronGo = useCallback(
+    async (rawTarget: string) => {
+      const viewer = window.electronViewer;
+      const target = normalizeTarget(rawTarget, port);
+      if (!target || !viewer) return;
+      setElectronError(null);
+      setHasNavigated(true);
+      setElectronBusy(true);
+      await viewer.navigate(target, { user: credsRef.current.user, pass: credsRef.current.pass });
+    },
+    [port],
+  );
+
+  const electronBack = useCallback(() => void window.electronViewer?.back(), []);
+  const electronForward = useCallback(() => void window.electronViewer?.forward(), []);
+  const electronReload = useCallback(() => void window.electronViewer?.reload(), []);
+
+  const electronDownload = useCallback(
+    (rawTarget: string) => {
+      const target = normalizeTarget(rawTarget, port);
+      if (target) void window.electronViewer?.downloadUrl(target);
+    },
+    [port],
+  );
+
+  const electronSavePage = useCallback(() => {
+    void window.electronViewer?.savePage();
+  }, []);
+
+  // Overlay (placeholder/error/source) vs. the native content view are
+  // mutually exclusive — the native view is composited above the whole
+  // window regardless of CSS, so it has to be explicitly shrunk to nothing
+  // whenever we want an overlay to actually be visible.
+  const contentVisible = hasNavigated && !electronError && !showSource;
+
+  useEffect(() => {
+    if (!isElectron || !showSource) return;
+    const viewer = window.electronViewer;
+    if (!viewer) return;
+    let cancelled = false;
+    setElectronSource(null);
+    viewer.getSource().then((html) => {
+      if (!cancelled) setElectronSource(html);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isElectron, showSource]);
+
+  useEffect(() => {
+    const viewer = window.electronViewer;
+    if (!isElectron || !viewer) return;
+    const report = () => {
+      const el = contentAreaRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      viewer.setContentBounds(
+        contentVisible
+          ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+          : { x: rect.x, y: rect.y, width: 0, height: 0 },
+      );
+    };
+    report();
+    const ro = new ResizeObserver(report);
+    if (contentAreaRef.current) ro.observe(contentAreaRef.current);
+    window.addEventListener("resize", report);
+    const offRequestBounds = viewer.onRequestBounds(report);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", report);
+      offRequestBounds();
+    };
+  }, [isElectron, contentVisible, showLogin]);
+
+  const isBusy = isElectron ? electronBusy : busy;
+  const canGoBack = isElectron ? electronCanBack : canBack;
+  const canGoForward = isElectron ? electronCanForward : canForward;
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
@@ -157,17 +284,32 @@ function Viewer() {
           className="flex flex-wrap items-center gap-2 px-3 py-2"
           onSubmit={(e) => {
             e.preventDefault();
-            void go(address);
+            if (isElectron) void electronGo(address);
+            else void go(address);
           }}
         >
           <div className="flex items-center gap-1">
-            <NavButton label="◀" title="Indietro" disabled={!canBack} onClick={() => jump(-1)} />
-            <NavButton label="▶" title="Avanti" disabled={!canForward} onClick={() => jump(1)} />
+            <NavButton
+              label="◀"
+              title="Indietro"
+              disabled={!canGoBack}
+              onClick={() => (isElectron ? electronBack() : jump(-1))}
+            />
+            <NavButton
+              label="▶"
+              title="Avanti"
+              disabled={!canGoForward}
+              onClick={() => (isElectron ? electronForward() : jump(1))}
+            />
             <NavButton
               label="⟳"
               title="Ricarica"
-              disabled={busy || !history.length}
+              disabled={isBusy || (isElectron ? !hasNavigated : !history.length)}
               onClick={() => {
+                if (isElectron) {
+                  electronReload();
+                  return;
+                }
                 const current = history[cursor];
                 if (current) void request(current);
               }}
@@ -191,15 +333,19 @@ function Viewer() {
 
           <button
             type="submit"
-            disabled={busy}
+            disabled={isBusy}
             className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
           >
-            {busy ? "Attendi…" : "Vai"}
+            {isBusy ? "Attendi…" : "Vai"}
           </button>
 
           <button
             type="button"
-            onClick={() => download(history[cursor] ?? address)}
+            onClick={() => {
+              const target = isElectron ? electronUrl || address : (history[cursor] ?? address);
+              if (isElectron) electronDownload(target);
+              else download(target);
+            }}
             className="rounded-md border border-input px-3 py-2 text-sm transition-colors hover:bg-accent"
           >
             Scarica
@@ -207,16 +353,18 @@ function Viewer() {
 
           <button
             type="button"
-            onClick={savePage}
-            disabled={!result || (result.text === null && result.html === null)}
+            onClick={() => {
+              if (isElectron) electronSavePage();
+              else savePage();
+            }}
+            disabled={
+              isElectron ? !hasNavigated : !result || (result.text === null && result.html === null)
+            }
             title="Salva la pagina come file HTML da leggere offline"
             className="rounded-md border border-input px-3 py-2 text-sm transition-colors hover:bg-accent disabled:opacity-50"
           >
             Salva pagina
           </button>
-
-
-
 
           <button
             type="button"
@@ -244,6 +392,11 @@ function Viewer() {
               type="button"
               onClick={() => {
                 setShowLogin(false);
+                if (isElectron) {
+                  const current = electronUrl || normalizeTarget(address, port);
+                  if (current) void electronGo(current);
+                  return;
+                }
                 const current = history[cursor] ?? normalizeTarget(address, port);
                 if (current) void request(current);
               }}
@@ -269,72 +422,124 @@ function Viewer() {
       </header>
 
       <main className="relative flex-1 overflow-hidden bg-muted">
-        {!result && (
-          <div className="flex h-full items-center justify-center px-6 text-center">
-            <div className="max-w-md">
-              <h1 className="text-2xl font-semibold">Visore di rete locale</h1>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Premi “Vai” per aprire {DEFAULT_HOST}. Cambia porta o indirizzo se serve. L’app
-                contatta la macchina direttamente, quindi i blocchi del browser non si applicano.
-              </p>
-            </div>
-          </div>
-        )}
+        {isElectron ? (
+          <>
+            {/* The device page is drawn natively by a WebContentsView layered
+                over this div (see the bounds-reporting effect above) — it's
+                not part of the DOM, so it stays on top of these overlays
+                unless we tell the main process to shrink it to zero size. */}
+            <div ref={contentAreaRef} className="absolute inset-0" />
 
-        {result && result.error && (
-          <div className="flex h-full items-center justify-center px-6 text-center">
-            <p className="max-w-lg text-sm text-destructive">{result.error}</p>
-          </div>
-        )}
+            {!hasNavigated && (
+              <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
+                <div className="max-w-md">
+                  <h1 className="text-2xl font-semibold">Visore di rete locale</h1>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Premi “Vai” per aprire {DEFAULT_HOST}. Cambia porta o indirizzo se serve. La
+                    pagina viene caricata direttamente, script inclusi, come in un browser.
+                  </p>
+                </div>
+              </div>
+            )}
 
-        {result && !result.error && showSource && (
-          <pre className="h-full overflow-auto bg-card p-4 font-mono text-xs whitespace-pre-wrap">
-            {result.text ?? "(contenuto non testuale)"}
-          </pre>
-        )}
+            {hasNavigated && electronError && (
+              <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
+                <p className="max-w-lg text-sm text-destructive">{electronError}</p>
+              </div>
+            )}
 
-        {result && !result.error && !showSource && result.html === null && result.text === null && (
-          <div className="flex h-full items-center justify-center px-6 text-center">
-            <div className="max-w-md">
-              <h2 className="text-lg font-semibold">File pronto da scaricare</h2>
-              <p className="mt-2 text-sm text-muted-foreground break-all">
-                {result.finalUrl}
-                {result.contentType ? ` · ${result.contentType}` : ""}
-              </p>
-              <button
-                type="button"
-                onClick={() => download(result.finalUrl)}
-                className="mt-4 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-              >
-                Scarica il file
-              </button>
-            </div>
-          </div>
-        )}
+            {hasNavigated && !electronError && showSource && (
+              <pre className="absolute inset-0 overflow-auto bg-card p-4 font-mono text-xs whitespace-pre-wrap">
+                {electronSource ?? "Caricamento codice sorgente…"}
+              </pre>
+            )}
+          </>
+        ) : (
+          <>
+            {!result && (
+              <div className="flex h-full items-center justify-center px-6 text-center">
+                <div className="max-w-md">
+                  <h1 className="text-2xl font-semibold">Visore di rete locale</h1>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Premi “Vai” per aprire {DEFAULT_HOST}. Cambia porta o indirizzo se serve. L’app
+                    contatta la macchina direttamente, quindi i blocchi del browser non si
+                    applicano.
+                  </p>
+                </div>
+              </div>
+            )}
 
-        {result && !result.error && !showSource && (result.html !== null || result.text !== null) && (
-          <iframe
-            title="Contenuto della macchina"
-            className="h-full w-full border-0 bg-white"
-            sandbox="allow-scripts allow-forms"
-            srcDoc={
-              result.html ??
-              `<pre style="font:13px/1.5 monospace;padding:16px;white-space:pre-wrap">${escapeHtml(
-                result.text ?? "",
-              )}</pre>`
-            }
-          />
+            {result && result.error && (
+              <div className="flex h-full items-center justify-center px-6 text-center">
+                <p className="max-w-lg text-sm text-destructive">{result.error}</p>
+              </div>
+            )}
+
+            {result && !result.error && showSource && (
+              <pre className="h-full overflow-auto bg-card p-4 font-mono text-xs whitespace-pre-wrap">
+                {result.text ?? "(contenuto non testuale)"}
+              </pre>
+            )}
+
+            {result &&
+              !result.error &&
+              !showSource &&
+              result.html === null &&
+              result.text === null && (
+                <div className="flex h-full items-center justify-center px-6 text-center">
+                  <div className="max-w-md">
+                    <h2 className="text-lg font-semibold">File pronto da scaricare</h2>
+                    <p className="mt-2 text-sm text-muted-foreground break-all">
+                      {result.finalUrl}
+                      {result.contentType ? ` · ${result.contentType}` : ""}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => download(result.finalUrl)}
+                      className="mt-4 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                    >
+                      Scarica il file
+                    </button>
+                  </div>
+                </div>
+              )}
+
+            {result &&
+              !result.error &&
+              !showSource &&
+              (result.html !== null || result.text !== null) && (
+                <iframe
+                  title="Contenuto della macchina"
+                  className="h-full w-full border-0 bg-white"
+                  sandbox="allow-scripts allow-forms"
+                  srcDoc={
+                    result.html ??
+                    `<pre style="font:13px/1.5 monospace;padding:16px;white-space:pre-wrap">${escapeHtml(
+                      result.text ?? "",
+                    )}</pre>`
+                  }
+                />
+              )}
+          </>
         )}
       </main>
 
       <footer className="border-t border-border bg-card px-3 py-2 text-xs text-muted-foreground">
-        {busy
-          ? "Richiesta in corso…"
-          : result
-            ? result.error
-              ? "Nessuna risposta"
-              : `${result.status} ${result.statusText} · ${result.contentType || "tipo sconosciuto"} · ${result.elapsedMs} ms · ${result.finalUrl}`
-            : "Pronto"}
+        {isElectron
+          ? electronBusy
+            ? "Caricamento…"
+            : !hasNavigated
+              ? "Pronto"
+              : electronError
+                ? "Nessuna risposta"
+                : electronUrl || "Pronto"
+          : busy
+            ? "Richiesta in corso…"
+            : result
+              ? result.error
+                ? "Nessuna risposta"
+                : `${result.status} ${result.statusText} · ${result.contentType || "tipo sconosciuto"} · ${result.elapsedMs} ms · ${result.finalUrl}`
+              : "Pronto"}
       </footer>
     </div>
   );
@@ -390,8 +595,5 @@ function Field({
 }
 
 function escapeHtml(input: string): string {
-  return input
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return input.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
