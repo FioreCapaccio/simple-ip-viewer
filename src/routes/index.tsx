@@ -10,6 +10,12 @@ import { buildProxyUrl, normalizeTarget } from "@/lib/proxy-shared";
 const DEFAULT_HOST = "http://192.168.1.69";
 const DEFAULT_PORT = "80";
 
+// Persisted locally (survives app restarts) — these are per-device service
+// credentials the user re-enters every few months, not the per-session
+// "Accesso" fields above which only cover HTTP Basic Auth.
+const SERVICE_CODE_KEY = "viewer:serviceCode";
+const SERVICE_PASSWORD_KEY = "viewer:servicePassword";
+
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
@@ -61,6 +67,54 @@ function Viewer() {
 
   const credsRef = useRef({ user: "", pass: "" });
   credsRef.current = { user, pass };
+
+  // --- Saved service credentials (persisted in localStorage, not just React
+  // state) — the "codice assistenza" is auto-filled into the CLX/Milli-Q
+  // Connect maintenance page (see electron/main.cjs's autofillScript); the
+  // service password has no known-safe field to auto-fill so it's just kept
+  // here for a one-click copy into the device's own login form. ---
+  const [serviceCode, setServiceCode] = useState("");
+  const [servicePassword, setServicePassword] = useState("");
+  const [showSaved, setShowSaved] = useState(false);
+  const [showServicePassword, setShowServicePassword] = useState(false);
+  const [copiedPassword, setCopiedPassword] = useState(false);
+
+  useEffect(() => {
+    try {
+      setServiceCode(localStorage.getItem(SERVICE_CODE_KEY) ?? "");
+      setServicePassword(localStorage.getItem(SERVICE_PASSWORD_KEY) ?? "");
+    } catch {
+      /* localStorage non disponibile: le credenziali salvate restano vuote */
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SERVICE_CODE_KEY, serviceCode);
+    } catch {
+      /* ignora: nessuna persistenza disponibile */
+    }
+    window.electronViewer?.setServiceCode(serviceCode);
+  }, [serviceCode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SERVICE_PASSWORD_KEY, servicePassword);
+    } catch {
+      /* ignora: nessuna persistenza disponibile */
+    }
+  }, [servicePassword]);
+
+  const copyServicePassword = useCallback(async () => {
+    if (!servicePassword) return;
+    try {
+      await navigator.clipboard.writeText(servicePassword);
+      setCopiedPassword(true);
+      setTimeout(() => setCopiedPassword(false), 1500);
+    } catch {
+      /* clipboard non disponibile */
+    }
+  }, [servicePassword]);
 
   // --- Web-mode (fetch + rewritten HTML in a sandboxed iframe) ---
 
@@ -374,6 +428,14 @@ function Viewer() {
             {user ? `Accesso: ${user}` : "Accesso"}
           </button>
 
+          <button
+            type="button"
+            onClick={() => setShowSaved((v) => !v)}
+            className="rounded-md border border-input px-3 py-2 text-sm transition-colors hover:bg-accent"
+          >
+            Credenziali salvate
+          </button>
+
           <label className="flex items-center gap-2 text-sm text-muted-foreground">
             <input
               type="checkbox"
@@ -416,6 +478,44 @@ function Viewer() {
             </button>
             <p className="text-xs text-muted-foreground">
               Le credenziali restano solo in questa scheda del browser.
+            </p>
+          </div>
+        )}
+
+        {showSaved && (
+          <div className="flex flex-wrap items-end gap-2 border-t border-border px-3 py-2">
+            <Field label="Codice assistenza (CLX)" value={serviceCode} onChange={setServiceCode} />
+            <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+              Password SERVICE
+              <div className="flex items-center gap-1">
+                <input
+                  type={showServicePassword ? "text" : "password"}
+                  value={servicePassword}
+                  onChange={(e) => setServicePassword(e.target.value)}
+                  className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowServicePassword((v) => !v)}
+                  title={showServicePassword ? "Nascondi" : "Mostra"}
+                  className="rounded-md border border-input px-2 py-2 text-sm hover:bg-accent"
+                >
+                  {showServicePassword ? "🙈" : "👁"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void copyServicePassword()}
+                  disabled={!servicePassword}
+                  className="rounded-md border border-input px-3 py-2 text-sm hover:bg-accent disabled:opacity-50"
+                >
+                  {copiedPassword ? "Copiata!" : "Copia"}
+                </button>
+              </div>
+            </div>
+            <p className="max-w-xs text-xs text-muted-foreground">
+              Salvati sul computer: il codice assistenza viene inserito automaticamente
+              nell&apos;interfaccia CLX; la password va incollata a mano nel form dell&apos;altro
+              strumento.
             </p>
           </div>
         )}

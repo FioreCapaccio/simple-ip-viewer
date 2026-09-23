@@ -29,6 +29,7 @@ export type ElectronViewerApi = {
   getSource: () => Promise<string>;
   savePage: () => Promise<{ ok: boolean; filePath?: string; error?: string }>;
   downloadUrl: (url: string) => Promise<void>;
+  setServiceCode: (code: string) => void;
   setContentBounds: (rect: ElectronViewerBounds) => void;
   onState: (callback: (state: ElectronViewerState) => void) => () => void;
   onError: (callback: (error: ElectronViewerError) => void) => () => void;

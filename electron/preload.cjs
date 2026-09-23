@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld("electronViewer", {
   getSource: () => ipcRenderer.invoke("viewer:get-source"),
   savePage: () => ipcRenderer.invoke("viewer:save-page"),
   downloadUrl: (url) => ipcRenderer.invoke("viewer:download-url", url),
+  setServiceCode: (code) => ipcRenderer.send("viewer:set-service-code", code),
   setContentBounds: (rect) => ipcRenderer.send("viewer:set-bounds", rect),
   onState: (callback) => subscribe("viewer:state", callback),
   onError: (callback) => subscribe("viewer:error", callback),

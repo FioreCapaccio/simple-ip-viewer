@@ -45,6 +45,47 @@ let serverProcess = null;
 let mainWindow = null;
 let contentView = null;
 let currentCreds = { user: "", pass: "" };
+// The "codice assistenza" field on the CLX/Milli-Q Connect maintenance page
+// (data-key="SERVICE_CODE", id generated fresh each load) — kept here so it
+// survives across in-page route changes the device's own SPA performs
+// without a full navigation, and re-applied whenever the toolbar updates it.
+let autofillServiceCode = "";
+
+function autofillScript(code) {
+  return `
+    (function () {
+      var CODE = ${JSON.stringify(code)};
+      if (window.__lanViewerAutofillInstalled) {
+        window.__lanViewerAutofillCode = CODE;
+        window.__lanViewerAutofillApply();
+        return;
+      }
+      window.__lanViewerAutofillInstalled = true;
+      window.__lanViewerAutofillCode = CODE;
+      var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      function apply() {
+        var value = window.__lanViewerAutofillCode;
+        if (!value) return;
+        var el =
+          document.querySelector('input[data-key="SERVICE_CODE"]') ||
+          document.querySelector('input[name^="SERVICE_CODE_"]');
+        if (!el || el.value === value) return;
+        nativeSetter.call(el, value);
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      window.__lanViewerAutofillApply = apply;
+      apply();
+      var mo = new MutationObserver(apply);
+      mo.observe(document.documentElement, { childList: true, subtree: true });
+    })();
+  `;
+}
+
+function applyAutofill() {
+  if (!contentView || !autofillServiceCode) return;
+  contentView.webContents.executeJavaScript(autofillScript(autofillServiceCode)).catch(() => {});
+}
 
 function waitForServer(url, timeoutMs = 20000) {
   const started = Date.now();
@@ -172,6 +213,8 @@ function createContentView() {
     "page-title-updated",
   ].forEach((evt) => wc.on(evt, sendState));
 
+  wc.on("dom-ready", applyAutofill);
+
   wc.on("did-fail-load", (_e, errorCode, errorDescription, validatedURL) => {
     if (errorCode === -3) return; // ERR_ABORTED — usually just a superseded navigation, not a real failure.
     sendToToolbar("viewer:error", { errorCode, errorDescription, validatedURL });
@@ -248,6 +291,11 @@ function registerIpc() {
 
   ipcMain.handle("viewer:download-url", (_e, url) => {
     contentView.webContents.downloadURL(url);
+  });
+
+  ipcMain.on("viewer:set-service-code", (_e, code) => {
+    autofillServiceCode = code || "";
+    applyAutofill();
   });
 
   ipcMain.on("viewer:set-bounds", (_e, rect) => {
