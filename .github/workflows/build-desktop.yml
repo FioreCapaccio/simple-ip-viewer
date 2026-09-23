@@ -8,6 +8,11 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+    # Editing workflow files alone shouldn't burn a full mac+windows build
+    # (10x/2x CI-minute multipliers on a private repo) — those changes are
+    # tested via workflow_dispatch instead.
+    paths-ignore:
+      - ".github/workflows/**"
   workflow_dispatch: {}
 
 jobs:

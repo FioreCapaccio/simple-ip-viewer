@@ -1,0 +1,18 @@
+name: Check Actions artifact quota
+
+# Cheap, manual-only probe: uploads a 1-byte artifact so we can tell whether
+# the account-wide Actions artifact storage quota (see build-desktop.yml) has
+# recovered, without burning minutes on a full mac+windows build to find out.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "ping" > probe.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quota-probe
+          path: probe.txt
+          retention-days: 1
