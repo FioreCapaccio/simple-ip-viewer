@@ -15,6 +15,7 @@ const DEFAULT_PORT = "80";
 // "Accesso" fields above which only cover HTTP Basic Auth.
 const SERVICE_CODE_KEY = "viewer:serviceCode";
 const SERVICE_PASSWORD_KEY = "viewer:servicePassword";
+const SERVICE_PASSWORD_DATE_KEY = "viewer:servicePasswordDate";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -75,6 +76,7 @@ function Viewer() {
   // here for a one-click copy into the device's own login form. ---
   const [serviceCode, setServiceCode] = useState("");
   const [servicePassword, setServicePassword] = useState("");
+  const [servicePasswordDate, setServicePasswordDate] = useState("");
   const [showSaved, setShowSaved] = useState(false);
   const [showServicePassword, setShowServicePassword] = useState(false);
   const [copiedPassword, setCopiedPassword] = useState(false);
@@ -83,6 +85,7 @@ function Viewer() {
     try {
       setServiceCode(localStorage.getItem(SERVICE_CODE_KEY) ?? "");
       setServicePassword(localStorage.getItem(SERVICE_PASSWORD_KEY) ?? "");
+      setServicePasswordDate(localStorage.getItem(SERVICE_PASSWORD_DATE_KEY) ?? "");
     } catch {
       /* localStorage non disponibile: le credenziali salvate restano vuote */
     }
@@ -104,6 +107,14 @@ function Viewer() {
       /* ignora: nessuna persistenza disponibile */
     }
   }, [servicePassword]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SERVICE_PASSWORD_DATE_KEY, servicePasswordDate);
+    } catch {
+      /* ignora: nessuna persistenza disponibile */
+    }
+  }, [servicePasswordDate]);
 
   const copyServicePassword = useCallback(async () => {
     if (!servicePassword) return;
@@ -512,6 +523,15 @@ function Viewer() {
                 </button>
               </div>
             </div>
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              Data ultimo utilizzo
+              <input
+                type="date"
+                value={servicePasswordDate}
+                onChange={(e) => setServicePasswordDate(e.target.value)}
+                className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+              />
+            </label>
             <p className="max-w-xs text-xs text-muted-foreground">
               Salvati sul computer: il codice assistenza viene inserito automaticamente
               nell&apos;interfaccia CLX; la password va incollata a mano nel form dell&apos;altro
